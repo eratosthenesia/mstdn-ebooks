@@ -7,6 +7,7 @@ import mastodon
 import os, random, re, json
 import create
 from bs4 import BeautifulSoup
+import sqlite3
 
 cfg = json.load(open('config.json', 'r'))
 
@@ -39,18 +40,38 @@ def extract_toot(toot):
 
 class ReplyListener(mastodon.StreamListener):
 	def on_notification(self, notification):
+		db = sqlite3.connect("haunt.db")
+		c = db.cursor()
+		visibility = notification['status']['visibility']
+		post_id = notification['status']['id']
+		mention = extract_toot(notification['status']['content'])
 		if notification['type'] == 'mention':
 			acct = "@" + notification['account']['acct']
-			post_id = notification['status']['id']
-			mention = extract_toot(notification['status']['content'])
-			toot = create.make_toot(True)['toot']
-			toot = acct + " " + toot
+			c.execute('SELECT * FROM the_damned WHERE acct = ?', acct)
+			if c.fetchone():
+				toot_stuff = create.make_toot()
+				toot = toot_stuff['toot']
+				cw = toot_stuff['cw']
+			else:
+				if re.search('the power of crust compells you', mention.lower().strip()):
+					toot = "AAAAAAA!!!! I AM BEING EXORCISED!!!"
+					cw = None
+					c.execute('DELETE FROM the_damned WHERE acct = ?', acct)
+				else:
+					toot = "You have been haunted by Mastoghost! (say \"the power of crust compells you\" at any point to exorcise me)"
+					cw = None
+					c.execute('INSERT INTO the_damned VALUES (?)', acct)
 			print(acct + " says " + mention)
-			visibility = notification['status']['visibility']
 			if visibility == "public":
 				visibility = "unlisted"
+		elif notification['type'] == 'follow':
+			cw = None
+			toot = create.make_ooo(random.randint(10, 500))
+		if cw:
+			client.status_post(toot, post_id, visibility=visibility, spoiler_text=cw)
+		else:
 			client.status_post(toot, post_id, visibility=visibility)
-			print("replied with " + toot)
+		print("replied with " + toot)
 
 rl = ReplyListener()
 client.stream_user(rl)
